@@ -1,0 +1,32 @@
+# Запуск на сервере из готовых образов Docker Hub (без исходного кода).
+# Настройки задаются в файле .env рядом с этим файлом (см. .env.example).
+name: users-api
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  api-python:
+    <<: *common
+    image: ${DOCKERHUB_USER:?Укажите DOCKERHUB_USER в файле .env}/users-api-python:${TAG:-latest}
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${PYTHON_PORT:-5000}:5000"
+    volumes:
+      - python-data:/data
+
+  api-go:
+    <<: *common
+    image: ${DOCKERHUB_USER:?Укажите DOCKERHUB_USER в файле .env}/users-api-go:${TAG:-latest}
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${GO_PORT:-5001}:5000"
+    volumes:
+      - go-data:/data
+
+volumes:
+  python-data:
+  go-data:

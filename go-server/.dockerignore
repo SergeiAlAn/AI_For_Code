@@ -1,0 +1,6 @@
+*.db
+*.exe
+server
+README.md
+Dockerfile
+.dockerignore

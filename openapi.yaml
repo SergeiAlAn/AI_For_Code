@@ -1,0 +1,301 @@
+openapi: 3.1.0
+
+info:
+  title: Users API
+  version: 1.0.0
+  summary: Создание пользователей и учёт активных пользователей.
+  description: |
+    HTTP API учебного проекта. Реализовано в двух версиях с одинаковым контрактом:
+
+    - `api.py` — Flask (Python);
+    - `go-server/` — Go.
+
+    Все ответы эндпоинтов — JSON. Ошибки возвращаются в виде `{"error": "описание"}`.
+
+    **Различия реализаций:**
+
+    - Flask требует заголовок `Content-Type: application/json` в `POST /adduser`,
+      иначе отвечает 400. Go-версия разбирает тело как JSON независимо от заголовка.
+    - Если `id` в пути не целое число, Go-версия отвечает JSON-ошибкой 404,
+      а Flask — стандартной HTML-страницей 404.
+    - Внутренняя ошибка сервера в Go-версии возвращается как JSON (`500`),
+      во Flask — как HTML-страница.
+    - Неподдерживаемый метод на существующем пути (например, `GET /adduser`)
+      в обеих версиях даёт `405` с телом не в формате JSON.
+
+servers:
+  - url: /
+    description: Текущий сервер (тот, что открыл страницу /docs)
+  - url: http://localhost:5000
+    description: Локальный запуск или Flask-версия в Docker Compose
+  - url: http://localhost:5001
+    description: Go-версия в Docker Compose
+
+tags:
+  - name: users
+    description: Пользователи
+  - name: activity
+    description: Активные пользователи
+  - name: docs
+    description: Документация
+
+paths:
+  /:
+    get:
+      tags: [docs]
+      operationId: rootRedirect
+      summary: Перенаправление на документацию
+      responses:
+        '302':
+          description: Перенаправление на `/docs`.
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /docs
+
+  /docs:
+    get:
+      tags: [docs]
+      operationId: docsPage
+      summary: Интерактивная документация (Swagger UI)
+      description: |
+        HTML-страница, на которой можно посмотреть и вызвать все эндпоинты.
+        Скрипты Swagger UI загружаются браузером с CDN jsDelivr, поэтому нужен доступ в интернет.
+      responses:
+        '200':
+          description: HTML-страница.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /openapi.yaml:
+    get:
+      tags: [docs]
+      operationId: openapiSpec
+      summary: Эта спецификация
+      responses:
+        '200':
+          description: Спецификация OpenAPI в формате YAML.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /adduser:
+    post:
+      tags: [users]
+      operationId: addUser
+      summary: Создать пользователя
+      description: |
+        Создаёт пользователя и возвращает его вместе с присвоенным `id`.
+        Пробелы по краям имени обрезаются; длина считается в символах, а не в байтах.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+            examples:
+              latin:
+                summary: Латиница
+                value:
+                  name: Alice
+              cyrillic:
+                summary: Кириллица и пробелы по краям
+                value:
+                  name: '  Алиса  '
+      responses:
+        '201':
+          description: Пользователь создан.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                name: Alice
+        '400':
+          description: |
+            Некорректный запрос: тело не является JSON-объектом, поле `name`
+            отсутствует, не строка, пустое после обрезки пробелов или длиннее 100 символов.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notObject:
+                  summary: Тело не JSON-объект
+                  value:
+                    error: request body must be a JSON object
+                emptyName:
+                  summary: Пустое или нестроковое имя
+                  value:
+                    error: "'name' must be a non-empty string"
+                tooLong:
+                  summary: Слишком длинное имя
+                  value:
+                    error: "'name' must be at most 100 characters"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: Получить пользователя
+      responses:
+        '200':
+          description: Пользователь найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                name: Alice
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /user/{id}/active:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [activity]
+      operationId: setUserActive
+      summary: Отметить пользователя активным
+      description: |
+        Добавляет отметку активности в конец списка и возвращает весь список.
+        Хранятся последние 5 отметок: новая вытесняет самую старую.
+        Один пользователь может встречаться в списке несколько раз.
+        Тело запроса не требуется.
+      responses:
+        '200':
+          description: Отметка добавлена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveUsers'
+              example:
+                active: [3, 1, 2, 1]
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /active:
+    get:
+      tags: [activity]
+      operationId: listActiveUsers
+      summary: Список активных пользователей
+      description: |
+        Возвращает последние отметки активности, от старых к новым.
+        Список хранится в памяти процесса и очищается при перезапуске сервера.
+      responses:
+        '200':
+          description: Текущий список (может быть пустым).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveUsers'
+              examples:
+                empty:
+                  summary: Отметок ещё нет
+                  value:
+                    active: []
+                filled:
+                  summary: Есть отметки
+                  value:
+                    active: [3, 1, 2]
+
+components:
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор пользователя.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 1
+
+  schemas:
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Идентификатор, присвоенный базой данных.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Имя без пробелов по краям.
+      additionalProperties: false
+
+    CreateUserRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: |
+            Имя пользователя. Пробелы по краям обрезаются перед проверкой,
+            поэтому строка только из пробелов отклоняется.
+      examples:
+        - name: Alice
+
+    ActiveUsers:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: array
+          maxItems: 5
+          description: Идентификаторы пользователей, от самой старой отметки к самой новой.
+          items:
+            type: integer
+            format: int64
+      additionalProperties: false
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Описание ошибки.
+      additionalProperties: false
+
+  responses:
+    UserNotFound:
+      description: Пользователь с таким `id` не найден.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: user not found
+
+    InternalError:
+      description: |
+        Внутренняя ошибка сервера, например сбой базы данных. Подробности пишутся
+        в лог сервера и клиенту не передаются. JSON возвращает только Go-версия.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: internal server error

@@ -1,0 +1,33 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+passwords.txt
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Go build output
+/go-server/server
+*.exe
+
+# Generated docs
+redoc-static.html
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
